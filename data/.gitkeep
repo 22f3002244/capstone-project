@@ -1,0 +1,4 @@
+# Place your CSV datasets here
+# Supported files:
+#   bot_iot.csv     → BoT-IoT dataset
+#   ton_iot.csv     → ToN-IoT network traffic

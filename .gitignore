@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Data (often large; commit only small samples)
+data/*.csv
+data/*.pcap
+!data/.gitkeep
+
+# Model weights
+models/**/*.pth
+models/**/*.pkl
+!models/.gitkeep
+
+# Results (regenerated on each run)
+results/*.csv
+results/*.json
+results/*.txt
+!results/.gitkeep
+
+# Visualizations
+visualizations/**/*.png
+visualizations/**/*.jpg
+!visualizations/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
