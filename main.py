@@ -43,6 +43,10 @@ def info(msg):
     print(f"{CYAN}[INFO]{END} {msg}")
 
 
+def err(msg):
+    print(f"\033[91m[ERROR]{END} {msg}")
+
+
 def parse_args():
     p = argparse.ArgumentParser(
         description="IoT Anomaly Detection — GNN Pipeline"
@@ -82,6 +86,17 @@ def build_config(args) -> dict:
     if args.no_explain:
         cfg["explain"] = False
 
+    # Validate config
+    valid_datasets = ["synthetic", "real_unlabelled_messy", "bot_iot", "ton_iot"]
+    if cfg["dataset"] not in valid_datasets:
+        raise ValueError(f"Invalid dataset: {cfg['dataset']}. Choose: {', '.join(valid_datasets)}")
+    
+    if cfg["epochs"] < 10:
+        raise ValueError(f"epochs must be >= 10, got {cfg['epochs']}")
+    
+    if cfg["patience"] >= cfg["epochs"]:
+        raise ValueError(f"patience ({cfg['patience']}) must be < epochs ({cfg['epochs']})")
+
     return cfg
 
 
@@ -107,15 +122,29 @@ def step_load_data(cfg: dict):
 
     elif ds == "bot_iot":
         path = os.path.join(cfg["data_path"], "bot_iot.csv")
+        if not os.path.isfile(path):
+            err(f"Bot-IoT file not found: {path}")
+            info("Please download from: https://www.unsw.adfa.edu.au/cybersecurity/ADFA-IDS-Datasets/")
+            sys.exit(1)
         df = load_bot_iot(path, multiclass=cfg["multiclass"])
 
     elif ds == "ton_iot":
         path = os.path.join(cfg["data_path"], "ton_iot.csv")
+        if not os.path.isfile(path):
+            err(f"ToN-IoT file not found: {path}")
+            info("Please download from: https://www.unsw.adfa.edu.au/cybersecurity/ADFA-IDS-Datasets/")
+            sys.exit(1)
         df = load_ton_iot(path, multiclass=cfg["multiclass"])
 
     else:
-        raise ValueError(f"Unknown dataset: {ds}")
+        raise ValueError(f"Unknown dataset: {ds}. Choose: synthetic, real_unlabelled_messy, bot_iot, ton_iot")
 
+    # Validate loaded data
+    if df is None or len(df) == 0:
+        raise ValueError(f"Dataset failed to load or is empty")
+    
+    info(f"Dataset loaded: {len(df):,} samples | {df.shape[1]} columns")
+    
     return df
 
 

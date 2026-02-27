@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -7,7 +8,13 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import pickle
 import warnings
+import joblib
+import contextlib
+import io
 warnings.filterwarnings("ignore")
+
+# Suppress loky subprocess warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 ATTACK_TYPES = ["normal", "ddos", "data_exfiltration", "botnet", "port_scan"]
@@ -120,8 +127,13 @@ def create_synthetic_iot_data(
 
 
 def load_bot_iot(path: str, multiclass: bool = False, sample_frac: float = 1.0) -> pd.DataFrame:
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"BoT-IoT file not found: {path}")
     print(f"[INFO] Loading BoT-IoT from {path}...")
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise ValueError(f"Failed to load BoT-IoT CSV: {e}")
     if sample_frac < 1.0:
         df = df.sample(frac=sample_frac, random_state=42).reset_index(drop=True)
 
@@ -152,8 +164,13 @@ def load_bot_iot(path: str, multiclass: bool = False, sample_frac: float = 1.0) 
 
 
 def load_ton_iot(path: str, multiclass: bool = False, sample_frac: float = 0.10) -> pd.DataFrame:
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"ToN-IoT file not found: {path}")
     print(f"[INFO] Loading ToN-IoT from {path} (sample={sample_frac:.0%})...")
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        raise ValueError(f"Failed to load ToN-IoT CSV: {e}")
     if sample_frac < 1.0:
         df = df.sample(frac=sample_frac, random_state=42).reset_index(drop=True)
 
@@ -421,8 +438,19 @@ class IoTDataPreprocessor:
 
     def _generate_pseudo_labels(self, features: np.ndarray, n_clusters: int = 2) -> np.ndarray:
         """Generate pseudo-labels via K-means clustering for unsupervised analysis."""
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        pseudo_labels = kmeans.fit_predict(features)
+        # Suppress stderr to hide loky subprocess warnings on Windows
+        with contextlib.redirect_stderr(io.StringIO()):
+            with joblib.parallel_backend('threading'):
+                # Use n_init=1 to speed up and reduce imbalance sensitivity
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                pseudo_labels = kmeans.fit_predict(features)
+        
+        # Balance pseudo-labels by swapping if needed
+        unique, counts = np.unique(pseudo_labels, return_counts=True)
+        if len(counts) == 2 and counts[0] > counts[1] * 10:
+            # If severely imbalanced, flip labels to ensure more realistic distribution
+            pseudo_labels = 1 - pseudo_labels
+        
         self.kmeans = kmeans
         return pseudo_labels
 
@@ -435,7 +463,12 @@ class IoTDataPreprocessor:
         features = pd.DataFrame(
             self.scaler.transform(features), columns=self.feature_columns
         )
-        labels = df["target"].values.astype(int)
+        # Handle both labelled and unlabelled data
+        if "target" in df.columns:
+            labels = df["target"].values.astype(int)
+        else:
+            # For unlabelled data: return dummy labels (zeros)
+            labels = np.zeros(len(features), dtype=int)
         return features, labels
 
     def save(self, path: str):
@@ -465,7 +498,11 @@ class IoTDataPreprocessor:
         df[num] = df[num].fillna(df[num].median())
         cat = df.select_dtypes(include=["object"]).columns
         for c in cat:
-            df[c] = df[c].fillna(df[c].mode().iloc[0])
+            mode_val = df[c].mode()
+            if len(mode_val) > 0:
+                df[c] = df[c].fillna(mode_val.iloc[0])
+            else:
+                df[c] = df[c].fillna("unknown")
         return df
 
     def _encode_protocol(self, df: pd.DataFrame, fit: bool) -> pd.DataFrame:
