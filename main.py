@@ -10,7 +10,7 @@ from config import DEFAULT_CONFIG
 
 from src.data_preprocessing  import (
     IoTDataPreprocessor, create_synthetic_iot_data,
-    load_bot_iot, load_ton_iot,
+    load_bot_iot, load_ton_iot, create_real_unlabelled_messy_iot_data,
 )
 from src.graph_construction   import IoTGraphConstructor
 from src.gnn_models           import get_model, count_parameters
@@ -48,7 +48,7 @@ def parse_args():
         description="IoT Anomaly Detection — GNN Pipeline"
     )
     p.add_argument("--config",      type=str, help="Path to JSON config file")
-    p.add_argument("--dataset",     type=str, choices=["synthetic","bot_iot","ton_iot"])
+    p.add_argument("--dataset",     type=str, choices=["synthetic","bot_iot","ton_iot","real_unlabelled_messy"])
     p.add_argument("--data_path",   type=str)
     p.add_argument("--models",      nargs="+", help="Models to train")
     p.add_argument("--graph",       type=str, choices=["flow","knn","temporal","hybrid"])
@@ -98,6 +98,13 @@ def step_load_data(cfg: dict):
             seed         = cfg["seed"],
         )
 
+    elif ds == "real_unlabelled_messy":
+        df = create_real_unlabelled_messy_iot_data(
+            n_samples = cfg["n_samples"],
+            n_devices = cfg["n_devices"],
+            seed      = cfg["seed"],
+        )
+
     elif ds == "bot_iot":
         path = os.path.join(cfg["data_path"], "bot_iot.csv")
         df = load_bot_iot(path, multiclass=cfg["multiclass"])
@@ -114,7 +121,8 @@ def step_load_data(cfg: dict):
 
 def step_preprocess(df, cfg: dict):
     section("Step 2 — Preprocessing")
-    preprocessor = IoTDataPreprocessor()
+    is_unlabelled = cfg.get("dataset") == "real_unlabelled_messy"
+    preprocessor = IoTDataPreprocessor(unlabelled=is_unlabelled)
     features, labels = preprocessor.fit_transform(df)
 
     if cfg.get("save_models"):
@@ -128,12 +136,21 @@ def step_build_graph(df, features, labels, cfg: dict):
     section("Step 3 — Graph Construction")
     gc    = IoTGraphConstructor(method=cfg["graph_method"],
                                  k_neighbors=cfg["k_neighbors"])
+    
+    # For unlabelled data, use pseudo-labels generated via clustering
+    is_unlabelled = cfg.get("dataset") == "real_unlabelled_messy"
+    if is_unlabelled:
+        info(f"Building graph with pseudo-labels (K-means clustering)...")
+    
     data  = gc.construct(df, features.values, labels)
     data  = gc.add_masks(data, split=cfg["split_ratio"], seed=cfg["seed"])
 
     n_classes = int(data.y.max().item()) + 1
     info(f"Graph ready | Classes: {n_classes} | "
          f"Nodes: {data.num_nodes} | Edges: {data.edge_index.shape[1]}")
+    
+    if is_unlabelled:
+        info(f"[UNLABELLED MODE] Using pseudo-labels for model training")
 
     return data, gc, n_classes
 
@@ -246,10 +263,20 @@ def main():
     elapsed = time.time() - t0
     print(f"\n{BOLD}{'═'*65}{END}")
     print(f"{GREEN}{BOLD}  Pipeline complete in {elapsed:.1f}s{END}")
-    best = comparison_df.loc[comparison_df["F1-Score"].idxmax()]
-    print(f"  Best model  : {BOLD}{best['Model']}{END}  |  "
-          f"F1={best['F1-Score']:.4f}  AUC={best['AUC']:.4f}")
+    
+    is_unlabelled = cfg.get("dataset") == "real_unlabelled_messy"
+    if is_unlabelled:
+        print(f"  Dataset      : UNLABELLED & MESSY (Real-world simulation)")
+        best = comparison_df.loc[comparison_df["F1-Score"].idxmax()]
+        print(f"  Best model   : {BOLD}{best['Model']}{END}  |  "
+              f"F1={best['F1-Score']:.4f}  Acc={best['Accuracy']:.4f}")
+    else:
+        best = comparison_df.loc[comparison_df["F1-Score"].idxmax()]
+        print(f"  Best model  : {BOLD}{best['Model']}{END}  |  "
+              f"F1={best['F1-Score']:.4f}  AUC={best['AUC']:.4f}")
+    
     print(f"  Results     : {cfg['results_dir']}")
+    print(f"{BOLD}{'═'*65}{END}\n")
     print(f"  Visuals     : {cfg['viz_dir']}")
     print(f"{BOLD}{'═'*65}{END}\n")
 

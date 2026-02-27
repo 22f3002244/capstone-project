@@ -1,11 +1,12 @@
 DEFAULT_CONFIG = {
-    "dataset": "synthetic",
+    "dataset": "real_unlabelled_messy",  # Options: synthetic, real_unlabelled_messy, bot_iot, ton_iot
     "data_path": "data/",
-    "n_samples": 12000,
-    "n_devices": 60,
-    "anomaly_ratio": 0.15,
+    "n_samples": 15000,
+    "n_devices": 80,
+    "anomaly_ratio": 0.15,  # Ignored for unlabelled datasets
     "multiclass": False,
     "seed": 42,
+    "unlabelled": True,  # Enable unsupervised learning mode
 
     "graph_method": "flow",
     "k_neighbors": 7,
